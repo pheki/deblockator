@@ -1,4 +1,4 @@
-use core::alloc::Alloc;
+use core::alloc::Allocator;
 use core::alloc::GlobalAlloc;
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
@@ -9,7 +9,6 @@ use core::ptr::NonNull;
 
 use spin::Mutex;
 use typenum::consts::U16384;
-use typenum::consts::U32768;
 use typenum::consts::U4096;
 use typenum::consts::U65536;
 use typenum::PowerOfTwo;
@@ -46,7 +45,7 @@ use super::utils::align_up;
 /// [`linked-list-allocator`]: https://crates.io/crates/linked-list-allocator
 pub struct Deblockator<A, BS = U65536, BA = U4096, LS = U16384, LA = U4096>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
@@ -65,7 +64,7 @@ where
 /// Test definition with public variables.
 pub struct Deblockator<A, BS = U65536, BA = U4096, LS = U16384, LA = U4096>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
@@ -82,25 +81,27 @@ where
 
 unsafe impl<A, BS, BA, LS, LA> Sync for Deblockator<A, BS, BA, LS, LA>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
     LA: Unsigned + PowerOfTwo,
-{}
+{
+}
 
 unsafe impl<A, BS, BA, LS, LA> Send for Deblockator<A, BS, BA, LS, LA>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
     LA: Unsigned + PowerOfTwo,
-{}
+{
+}
 
 impl<A, BS, BA, LS, LA> Default for Deblockator<A, BS, BA, LS, LA>
 where
-    A: Alloc + Default,
+    A: Allocator + Default,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
@@ -113,7 +114,7 @@ where
 
 impl<A, BS, BA, LS, LA> Deblockator<A, BS, BA, LS, LA>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
@@ -141,7 +142,7 @@ where
 
 unsafe impl<A, BS, BA, LS, LA> GlobalAlloc for Deblockator<A, BS, BA, LS, LA>
 where
-    A: Alloc,
+    A: Allocator,
     BS: Unsigned + 'static,
     BA: Unsigned + PowerOfTwo,
     LS: Unsigned,
@@ -153,7 +154,7 @@ where
 
         // if the requested memory block is large, simply dedicate a single block
         if layout.size() >= LS::to_usize() {
-            return match allocator.alloc(self.padded(layout, LA::to_usize())) {
+            return match allocator.allocate(self.padded(layout, LA::to_usize())) {
                 Ok(ptr) => ptr.as_ptr() as *mut u8,
                 Err(_) => ::core::ptr::null_mut::<u8>(),
             };
@@ -161,7 +162,7 @@ where
 
         // Pad the layout to the minimum legal size
         let block_layout = {
-            let mut size = max(HeapBlock::<BS>::min_size(), layout.size());
+            let size = max(HeapBlock::<BS>::min_size(), layout.size());
             Layout::from_size_align_unchecked(align_up(size, align_of::<Hole>()), layout.align())
         };
 
@@ -176,7 +177,7 @@ where
 
         // No block can contain the requested layout: allocate a new one !
         let new_heap_layout = Layout::from_size_align_unchecked(BS::to_usize(), BA::to_usize());
-        let new_heap_ptr = match allocator.alloc(new_heap_layout) {
+        let new_heap_ptr = match allocator.allocate(new_heap_layout) {
             Ok(ptr) => NonNull::new(ptr.as_ptr() as *mut HeapBlock).unwrap(),
             Err(_) => return ::core::ptr::null_mut::<u8>(),
             // Err(_) => return 0xDEADBEEF as usize as *mut _,
@@ -199,7 +200,7 @@ where
         let lock = self.mutex.lock();
         if layout.size() >= LS::to_usize() {
             let allocator = &mut *self.block_allocator.get();
-            allocator.dealloc(
+            allocator.deallocate(
                 NonNull::new(ptr).unwrap(),
                 self.padded(layout, LA::to_usize()),
             );
@@ -223,7 +224,7 @@ mod test {
 
     use super::*;
 
-    use core::alloc::AllocErr;
+    use core::alloc::AllocError;
     use core::mem::size_of;
 
     use typenum::consts::U2048;
@@ -242,18 +243,18 @@ mod test {
         }
     }
 
-    unsafe impl Alloc for MockAlloc {
-        unsafe fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocErr> {
+    unsafe impl Allocator for MockAlloc {
+        unsafe fn allocate(&self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
             for i in 0..self.blocks.len() {
                 if !self.allocated[i] {
                     self.allocated[i] = true;
-                    return NonNull::new(self.blocks[i].as_mut().as_mut_ptr()).ok_or(AllocErr);
+                    return NonNull::new(self.blocks[i].as_mut().as_mut_ptr()).ok_or(AllocError);
                 }
             }
-            Err(AllocErr)
+            Err(AllocError)
         }
 
-        unsafe fn dealloc(&mut self, ptr: NonNull<u8>, layout: Layout) {
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
             for i in 0..self.blocks.len() {
                 if ptr.as_ptr() == self.blocks[i].as_mut().as_mut_ptr() {
                     if !self.allocated[i] {
@@ -352,5 +353,4 @@ mod test {
             va.dealloc(ptr1, layout);
         }
     }
-
 }

@@ -1,8 +1,8 @@
-extern crate jemallocator;
 extern crate deblockator;
+extern crate jemallocator;
 
-use jemallocator::Jemalloc;
 use deblockator::Deblockator;
+use jemallocator::Jemalloc;
 
 mod cases;
 

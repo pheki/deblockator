@@ -97,6 +97,7 @@
 #![feature(allocator_api)]
 #![feature(const_fn)]
 #![feature(alloc_layout_extra)]
+#![feature(const_mut_refs)]
 
 #[cfg(test)]
 use std as core;
